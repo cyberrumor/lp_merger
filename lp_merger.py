@@ -281,12 +281,15 @@ def parse_args(sys_argv: list[str]) -> argparse.Namespace:
     """
     Arg parser.
     """
-    parser = argparse.ArgumentParser(prog=Path(__file__).name)
+    parser = argparse.ArgumentParser(
+        prog=Path(__file__).name,
+        epilog="redirect stdout to a new json file and load it in 'Data/lightplacer/' instead of the absorbed LP configs"
+    )
     parser.add_argument(
         "paths",
         type=Path,
         nargs="*",
-        help="list of paths to files under 'Data/lightplacer/'. Earlier files win model/addonNode conflicts.",
+        help="list of paths to json files under 'Data/lightplacer/'. Earlier files win conflicts",
     )
     return parser.parse_args()
 
