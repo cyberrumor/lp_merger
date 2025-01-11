@@ -444,13 +444,21 @@ def main(sys_argv: list[str]):
         expanded_config.extend(expand(entry))
 
     deduped_config: list[Entry] = []
-    for entry in expanded_config:
+    for index, entry in enumerate(expanded_config):
         for attr in ("addonNodes", "models", "visualEffects"):
             if (a := getattr(entry, attr)) is None:
                 continue
 
-            if len(a) > 0 and a[0] not in (getattr(i, attr) for i in deduped_config):
-                deduped_config.append(entry)
+            # If this addonNode, model, or visualEffect hasn't been included
+            # in our unique entries yet, include it.
+            current_stuff = []
+            for element in deduped_config:
+                current_stuff.extend(getattr(element, attr, []) or [])
+
+            if a[0] in current_stuff:
+                continue
+
+            deduped_config.append(entry)
 
     sorted_config = sorted(
         deduped_config,
