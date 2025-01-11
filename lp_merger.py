@@ -37,7 +37,7 @@ def get_flag(string: str) -> Flag:
         "simple": Flag.SIMPLE,
         "syncaddonnodes": Flag.SYNC_ADDON_NODES,
         "updateoncelltransition": Flag.UPDATE_ON_CELL_TRANSITION,
-        "updateonwaiting": Flag.UPDATE_ON_WAITING
+        "updateonwaiting": Flag.UPDATE_ON_WAITING,
     }
 
     return flag_map[string.lower()]
@@ -68,6 +68,7 @@ class AttachmentType(StrEnum):
 
 
 type Color = list[float] | list[int]
+
 
 @dataclass(kw_only=True)
 class Keyframe:
@@ -156,7 +157,6 @@ class Data:
 
             self.flags = flags
 
-
             if Flag.SHADOW in self.flags:
                 assert (
                     self.shadowDepthBias is not None
@@ -178,7 +178,6 @@ class Light:
     whiteList: list[str] | None = None
 
     def __post_init__(self):
-
         if self.blackList is not None:
             self.blackList = sorted([i.lower() for i in self.blackList])
 
@@ -187,14 +186,9 @@ class Light:
 
         if self.points is not None:
             for i in self.points:
-                assert (
-                    len(i) == 3
-                ), f"Expected 'points' to have 3 items, found {i}"
+                assert len(i) == 3, f"Expected 'points' to have 3 items, found {i}"
 
-            self.points = sorted(
-                self.points,
-                key=lambda x: (x[0], x[1], x[2])
-            )
+            self.points = sorted(self.points, key=lambda x: (x[0], x[1], x[2]))
 
 
 @dataclass(kw_only=True)
@@ -208,8 +202,8 @@ class Entry:
     attachment_type: AttachmentType = field(init=False)
 
     def __post_init__(self):
-        assert (
-            any((self.models, self.addonNodes, self.visualEffects))
+        assert any(
+            (self.models, self.addonNodes, self.visualEffects)
         ), "Entry didn't define keys for models, addonNodes, or visualEffects. At least one is required."
 
         if self.models:
@@ -217,7 +211,7 @@ class Entry:
             self.models.sort()
 
             for light in self.lights:
-                assert (light.points or light.nodes)
+                assert light.points or light.nodes
 
         if self.addonNodes:
             self.attachment_type = AttachmentType.ADDON_NODES
@@ -245,7 +239,11 @@ def get_entries_from(path: Path) -> list[Entry]:
                     blackList=light.get("blackList", None),
                     data=Data(
                         color=light["data"].get("color", None),
-                        colorController=light["data"].get("colorController", None),
+                        colorController=(
+                            ColorController(light["data"].get("colorController", None))
+                            if light["data"].get("colorController", None)
+                            else None
+                        ),
                         conditionalNodes=light["data"].get("conditionalNodes", None),
                         conditions=light["data"].get("conditions", None),
                         externalEmittance=light["data"].get("externalEmittance", None),
@@ -254,11 +252,29 @@ def get_entries_from(path: Path) -> list[Entry]:
                         fov=light["data"].get("fov", None),
                         light=light["data"].get("light"),
                         offset=light["data"].get("offset", None),
-                        positionController=light["data"].get("positionController", None),
+                        positionController=(
+                            PositionController(
+                                light["data"].get("positionController", None)
+                            )
+                            if light["data"].get("positionController", None)
+                            else None
+                        ),
                         radius=light["data"].get("radius", None),
-                        radiusController=light["data"].get("radiusController", None),
+                        radiusController=(
+                            RadiusController(
+                                light["data"].get("radiusController", None)
+                            )
+                            if light["data"].get("radiusController", None)
+                            else None
+                        ),
                         rotation=light["data"].get("rotation", None),
-                        rotationController=light["data"].get("rotationController", None),
+                        rotationController=(
+                            RotationController(
+                                light["data"].get("rotationController", None)
+                            )
+                            if light["data"].get("rotationController", None)
+                            else None
+                        ),
                         shadowDepthBias=light["data"].get("shadowDepthBias", None),
                     ),
                     nodes=light.get("nodes", None),
@@ -268,7 +284,8 @@ def get_entries_from(path: Path) -> list[Entry]:
                 for light in item["lights"]
             ],
             visualEffects=item.get("visualEffects", None),
-            addonNodes=[int(addonNode) for addonNode in item.get("addonNodes", [])] or None,
+            addonNodes=[int(addonNode) for addonNode in item.get("addonNodes", [])]
+            or None,
             models=item.get("models", None),
         )
 
@@ -283,14 +300,34 @@ def parse_args(sys_argv: list[str]) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog=Path(__file__).name,
-        epilog="redirect stdout to a new json file and load it in 'Data/lightplacer/' instead of the absorbed LP configs"
+        epilog="redirect stdout to a new json file and load it in 'Data/lightplacer/' instead of input jsons",
     )
+
     parser.add_argument(
         "paths",
         type=Path,
         nargs="*",
         help="list of paths to json files under 'Data/lightplacer/'. Earlier files win conflicts",
     )
+
+    parser.add_argument(
+        "--add-flags",
+        type=Flag,
+        nargs="*",
+        help="Flags to include in all lights",
+        choices=list(Flag),
+        default=[],
+    )
+
+    parser.add_argument(
+        "--remove-flags",
+        type=Flag,
+        nargs="*",
+        help="Flags to omit from all lights",
+        choices=list(Flag),
+        default=[],
+    )
+
     return parser.parse_args()
 
 
@@ -313,7 +350,7 @@ def expand(entry: Entry) -> list[Entry]:
     return [entry]
 
 
-def collapse(entries :list[Entry]) -> list[Entry]:
+def collapse(entries: list[Entry]) -> list[Entry]:
     """
     We have a list of entries where each model,
     addonNode, or visualEffect resides in its own entry.
@@ -325,15 +362,16 @@ def collapse(entries :list[Entry]) -> list[Entry]:
     result: list[Entry] = []
 
     for index, entry in enumerate(entries):
-
-        for other_entry in entries[index + 1:]:
+        for other_entry in entries[index + 1 :]:
             if entry == other_entry:
-                if (
-                    (original := getattr(entry, entry.attachment_type, None))
-                    and
-                    (new := getattr(other_entry, other_entry.attachment_type, None))
+                if (original := getattr(entry, entry.attachment_type, None)) and (
+                    new := getattr(other_entry, other_entry.attachment_type, None)
                 ):
                     original.extend(new)
+                    # de-duplicate the list, because getattr apparently gave us a copy
+                    # instead of a reference.
+                    original = sorted(list(set(original)))
+                    setattr(entry, entry.attachment_type, original)
 
         if entry not in result:
             result.append(entry)
@@ -341,17 +379,17 @@ def collapse(entries :list[Entry]) -> list[Entry]:
     return result
 
 
-def serialize[T](iterable: T) -> T:
+def serialize[T](iterable: T, flags_to_add: list[Flag], flags_to_remove: list[Flag]) -> T:
     """
     Return a new dict:
-        - without null-keys,
+        - without keys with null values
         - with list[Flag] as 'flag1|flag2|flag3'
         - without .attachment_type
     """
     if isinstance(iterable, list):
         result = []
         for i in iterable:
-            result.append(serialize(i))
+            result.append(serialize(i, flags_to_add, flags_to_remove))
         return result
 
     elif isinstance(iterable, dict):
@@ -364,6 +402,15 @@ def serialize[T](iterable: T) -> T:
                 continue
 
             if k == "flags":
+                for flag in flags_to_add:
+                    v.append(flag)
+
+                for flag in flags_to_remove:
+                    while flag in v:
+                        v.remove(flag)
+
+                # de-duplicate flags
+                v = sorted(list(set(v)))
                 # Change from:
                 # "flags": ["IgnoreScale", "Shadow"]
                 # to
@@ -371,7 +418,7 @@ def serialize[T](iterable: T) -> T:
                 v.sort()
                 v = "|".join(v)
 
-            v = serialize(v)
+            v = serialize(v, flags_to_add, flags_to_remove)
 
             result[k] = v
 
@@ -399,9 +446,11 @@ def main(sys_argv: list[str]):
     deduped_config: list[Entry] = []
     for entry in expanded_config:
         for attr in ("addonNodes", "models", "visualEffects"):
-            if (a := getattr(entry, attr)) is not None and len(a) > 0:
-                if a[0] not in (getattr(i, attr) for i in deduped_config):
-                    deduped_config.append(entry)
+            if (a := getattr(entry, attr)) is None:
+                continue
+
+            if len(a) > 0 and a[0] not in (getattr(i, attr) for i in deduped_config):
+                deduped_config.append(entry)
 
     sorted_config = sorted(
         deduped_config,
@@ -409,10 +458,14 @@ def main(sys_argv: list[str]):
             (getattr(x, "addonNodes", [0]) or [0])[0],
             (getattr(x, "models", [""]) or [""])[0].lower(),
             (getattr(x, "visualEffects", [0]) or [0])[0],
-        )
+        ),
     )
 
-    clean_config = [serialize(asdict(entry)) for entry in collapse(sorted_config)]
+    clean_config = [
+        serialize(asdict(entry), args.add_flags, args.remove_flags)
+        for entry
+        in collapse(sorted_config)
+    ]
     print(json.dumps(clean_config, sort_keys=True, indent=2))
 
 
