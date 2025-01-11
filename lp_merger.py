@@ -79,7 +79,7 @@ class Keyframe:
 
 
 @dataclass(kw_only=True)
-class PositionController:
+class PositionKeyframe:
     backward: float
     forward: float
     time: float
@@ -87,29 +87,49 @@ class PositionController:
 
 
 @dataclass(kw_only=True)
-class RotationController:
+class RotationKeyframe:
     backward: float
     forward: float
-    rotation: list[float]
     time: float
+    rotation: list[float]
+
+
+@dataclass(kw_only=True)
+class ColorKeyframe:
+    backward: float
+    forward: float
+    time: float
+    color: Color
+
+
+@dataclass(kw_only=True)
+class PositionController:
+    interpolation: Interpolation
+    keys: list[PositionKeyframe]
+
+
+@dataclass(kw_only=True)
+class RotationController:
+    interpolation: Interpolation
+    keys: list[RotationKeyframe]
 
 
 @dataclass(kw_only=True)
 class ColorController:
-    color: Color
-    time: float
+    interpolation: Interpolation
+    keys: list[ColorKeyframe]
 
 
 @dataclass(kw_only=True)
 class RadiusController:
     interpolation: Interpolation
-    keys: list[Keyframe]
+    keys: list[Keyframe] | None = None
 
 
 @dataclass(kw_only=True)
 class FadeController:
     interpolation: Interpolation
-    keys: list[Keyframe]
+    keys: list[Keyframe] | None = None
 
 
 @dataclass(kw_only=True)
@@ -227,6 +247,7 @@ def get_entries_from(path: Path) -> list[Entry]:
     Given a file path, serialize the file into a list of Entries
     and return it.
     """
+    print(f"Parsing '{str(path)}'", file=sys.stderr)
     with open(path, "r", encoding="utf-8") as f:
         contents = json.loads(f.read())
 
@@ -240,7 +261,7 @@ def get_entries_from(path: Path) -> list[Entry]:
                     data=Data(
                         color=light["data"].get("color", None),
                         colorController=(
-                            ColorController(light["data"].get("colorController", None))
+                            ColorController(**light["data"].get("colorController", {}))
                             if light["data"].get("colorController", None)
                             else None
                         ),
@@ -254,7 +275,7 @@ def get_entries_from(path: Path) -> list[Entry]:
                         offset=light["data"].get("offset", None),
                         positionController=(
                             PositionController(
-                                light["data"].get("positionController", None)
+                                **light["data"].get("positionController", None, {})
                             )
                             if light["data"].get("positionController", None)
                             else None
@@ -262,7 +283,7 @@ def get_entries_from(path: Path) -> list[Entry]:
                         radius=light["data"].get("radius", None),
                         radiusController=(
                             RadiusController(
-                                light["data"].get("radiusController", None)
+                                **light["data"].get("radiusController", None, {})
                             )
                             if light["data"].get("radiusController", None)
                             else None
@@ -270,7 +291,7 @@ def get_entries_from(path: Path) -> list[Entry]:
                         rotation=light["data"].get("rotation", None),
                         rotationController=(
                             RotationController(
-                                light["data"].get("rotationController", None)
+                                **light["data"].get("rotationController", None, {})
                             )
                             if light["data"].get("rotationController", None)
                             else None
@@ -379,7 +400,9 @@ def collapse(entries: list[Entry]) -> list[Entry]:
     return result
 
 
-def serialize[T](iterable: T, flags_to_add: list[Flag], flags_to_remove: list[Flag]) -> T:
+def serialize[T](
+    iterable: T, flags_to_add: list[Flag], flags_to_remove: list[Flag]
+) -> T:
     """
     Return a new dict:
         - without keys with null values
@@ -471,8 +494,7 @@ def main(sys_argv: list[str]):
 
     clean_config = [
         serialize(asdict(entry), args.add_flags, args.remove_flags)
-        for entry
-        in collapse(sorted_config)
+        for entry in collapse(sorted_config)
     ]
     print(json.dumps(clean_config, sort_keys=True, indent=2))
 
