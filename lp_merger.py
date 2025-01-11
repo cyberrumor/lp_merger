@@ -6,6 +6,7 @@ from pathlib import Path
 from dataclasses import (
     dataclass,
     asdict,
+    field,
 )
 from enum import StrEnum
 from copy import deepcopy
@@ -58,6 +59,12 @@ def get_interpolation(string: str) -> Interpolation:
         "step": Interpolation.STEP,
     }
     return interpolation_map[string.lower()]
+
+
+class AttachmentType(StrEnum):
+    ADDON_NODES = "addonNodes"
+    MODELS = "models"
+    VISUAL_EFFECTS = "visualEffects"
 
 
 type Color = list[float] | list[int]
@@ -194,9 +201,11 @@ class Light:
 class Entry:
     lights: list[Light]
 
-    addonNodes: list[int] | None = None
-    models: list[str] | None = None
-    visualEffects: list[str] | None = None
+    addonNodes: list[int] | None = field(compare=False, default=None)
+    models: list[str] | None = field(compare=False, default=None)
+    visualEffects: list[str] | None = field(compare=False, default=None)
+
+    attachment_type: AttachmentType = field(init=False)
 
     def __post_init__(self):
         assert (
@@ -204,15 +213,18 @@ class Entry:
         ), "Entry didn't define keys for models, addonNodes, or visualEffects. At least one is required."
 
         if self.models:
+            self.attachment_type = AttachmentType.MODELS
             self.models.sort()
 
             for light in self.lights:
                 assert (light.points or light.nodes)
 
         if self.addonNodes:
+            self.attachment_type = AttachmentType.ADDON_NODES
             self.addonNodes.sort()
 
         if self.visualEffects:
+            self.attachment_type = AttachmentType.VISUAL_EFFECTS
             self.visualEffects.sort()
 
 
@@ -279,7 +291,6 @@ def parse_args(sys_argv: list[str]) -> argparse.Namespace:
     return parser.parse_args()
 
 
-
 def expand(entry: Entry) -> list[Entry]:
     """
     Given a single entry, return a list of entries where each
@@ -287,11 +298,11 @@ def expand(entry: Entry) -> list[Entry]:
     from the original entry.
     """
     result = []
-    for attr in ("models", "addonNodes", "visualEffects"):
+    for attr in ("addonNodes", "models", "visualEffects"):
         if (a := getattr(entry, attr)) is not None and len(a) > 0:
             for item in a:
                 new_entry = deepcopy(entry)
-                new_entry.models = [item]
+                setattr(new_entry, attr, [item])
                 result.append(new_entry)
             return result
 
@@ -299,10 +310,40 @@ def expand(entry: Entry) -> list[Entry]:
     return [entry]
 
 
+def collapse(entries :list[Entry]) -> list[Entry]:
+    """
+    We have a list of entries where each model,
+    addonNode, or visualEffect resides in its own entry.
+    For each entry, if that entry could be represented
+    perfectly by another, merge them.
+
+    Return a new list of those entries.
+    """
+    result: list[Entry] = []
+
+    for index, entry in enumerate(entries):
+
+        for other_entry in entries[index + 1:]:
+            if entry == other_entry:
+                if (
+                    (original := getattr(entry, entry.attachment_type, None))
+                    and
+                    (new := getattr(other_entry, other_entry.attachment_type, None))
+                ):
+                    original.extend(new)
+
+        if entry not in result:
+            result.append(entry)
+
+    return result
+
+
 def serialize[T](iterable: T) -> T:
     """
-    Return a new dict without null-keys and
-    with list[Flag] as 'flag1|flag2|flag3'
+    Return a new dict:
+        - without null-keys,
+        - with list[Flag] as 'flag1|flag2|flag3'
+        - without .attachment_type
     """
     if isinstance(iterable, list):
         result = []
@@ -314,6 +355,9 @@ def serialize[T](iterable: T) -> T:
         result = {}
         for k, v in iterable.items():
             if v is None:
+                continue
+
+            if k == "attachment_type":
                 continue
 
             if k == "flags":
@@ -351,14 +395,21 @@ def main(sys_argv: list[str]):
 
     deduped_config: list[Entry] = []
     for entry in expanded_config:
-        for attr in ("models", "addonNodes", "visualEffects"):
+        for attr in ("addonNodes", "models", "visualEffects"):
             if (a := getattr(entry, attr)) is not None and len(a) > 0:
                 if a[0] not in (getattr(i, attr) for i in deduped_config):
                     deduped_config.append(entry)
 
+    sorted_config = sorted(
+        deduped_config,
+        key=lambda x: (
+            (getattr(x, "addonNodes", [0]) or [0])[0],
+            (getattr(x, "models", [""]) or [""])[0].lower(),
+            (getattr(x, "visualEffects", [0]) or [0])[0],
+        )
+    )
 
-    clean_config = [serialize(asdict(entry)) for entry in deduped_config]
-
+    clean_config = [serialize(asdict(entry)) for entry in collapse(sorted_config)]
     print(json.dumps(clean_config, sort_keys=True, indent=2))
 
 
