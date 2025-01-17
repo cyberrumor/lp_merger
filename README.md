@@ -49,6 +49,9 @@ stdout. See the windows/linux usage sections below for examples.
 Once you have generated a new json file, you'll want to put it in `Data/LightPlacer`,
 and deactivate or delete all the lightplacer configs that you used during merging.
 
+If lp_merger.py crashes, it is probably because of a syntax error with the json
+you are trying to merge. It will need to be fixed before it will be possible to merge.
+
 ## Windows
 ```
 python3 lp_merger.py C:\path\to\file1.json C:\path\to\file2.json > new_file.json
