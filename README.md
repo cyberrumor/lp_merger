@@ -4,6 +4,12 @@ lp_merger is a python script which allows partial conflict resolution of Light P
 This tool is useful to people who want to be able to run LPO, CS Light, and Placed Light alongside
 each other without getting too many lights on one mesh (which results in overexposure).
 
+# Requirements
+
+- [python 3.12](https://www.python.org/downloads/) or newer
+- Familiarity with CLI tools
+
+
 # Usage
 
 ```
